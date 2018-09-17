@@ -1,0 +1,9 @@
+/-*/
+/.vscode/
+/mak.*/
+/*.bat
+/*.lnk
+/*.zip
+/*.tags*
+/userinfo.nmake
+/userrule.nmake
