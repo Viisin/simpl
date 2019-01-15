@@ -672,14 +672,17 @@ void *simpl_memalign(void *simp, size_t align, size_t alloc_size)
 	q = (uint8_t *)ptr_align_up(p, align);
 	aligned_chunk = get_payload_chunk(q);
 
-	size = (uint32_t)(q - p) - simplc_chunk_overhead;
-	set_chunk_size(chunk, size);
-	set_chunk_free(chunk);
-	push_free_chunk(pool, chunk);
-	
-	aligned_chunk->phys_prev = chunk;
-	set_chunk_size(aligned_chunk, chunk_size - size - simplc_chunk_overhead);
-	
+	if (q == p) {
+		set_chunk_size(aligned_chunk, chunk_size);
+	} else {
+		size = (uint32_t)(q - p) - simplc_chunk_overhead;
+		set_chunk_size(chunk, size);
+		set_chunk_free(chunk);
+		push_free_chunk(pool, chunk);
+		
+		aligned_chunk->phys_prev = chunk;
+		set_chunk_size(aligned_chunk, chunk_size - size - simplc_chunk_overhead);
+	}
 	aligned_chunk = trim_chunk_to_use(pool, aligned_chunk, adj_size);
 	return get_chunk_payload(aligned_chunk);
 }
