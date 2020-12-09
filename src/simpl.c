@@ -109,6 +109,12 @@ static inline size_t align_up(size_t val, size_t align) {
 	return val + mask & ~mask;
 }
 
+#if (defined(_DEBUG) && !defined(NDEBUG))
+static inline int is_aligned(size_t val, size_t align) {
+	return ((val & align - 1) == 0);
+}
+#endif//(_DEBUG && !NDEBUG)
+
 static inline void *ptr_align_up(void *ptr, size_t align) {
 	uintptr_t mask = align - 1;
 	return (void *)((uintptr_t)ptr + mask & ~mask);
@@ -118,15 +124,9 @@ static inline void *ptr_align_down(void *ptr, size_t align) {
 	return (void *)((uintptr_t)ptr & ~((uintptr_t)align - 1));
 }
 
-#if (defined(_DEBUG) && !defined(NDEBUG))
-static inline int is_aligned(size_t val, size_t align) {
-	return ((val & align - 1) == 0);
-}
-
 static inline int is_ptr_aligned(void *ptr, size_t align) {
 	return (((uintptr_t)ptr & (uintptr_t)align - 1) == 0);
 }
-#endif//(_DEBUG && !NDEBUG)
 
 /** <pre>
  *  +---------[CHUNK]---------+
@@ -526,8 +526,7 @@ static struct simpl_chunk *trim_chunk_to_use(struct simpl_pool *pool, struct sim
 		"trim_size(%d) must smaller than chunk_size(%d).", trim_size, chunk_size);
 	remain = chunk_size - trim_size;
 	if (remain >= simplc_chunk_overhead + simplc_chunk_min_size) {
-		chunk_size -= remain;
-		set_chunk_size(chunk, chunk_size);
+		set_chunk_size(chunk, trim_size);
 
 		trim = next_phys_chunk(chunk);
 		trim->size = remain - simplc_chunk_overhead;
@@ -669,17 +668,18 @@ void *simpl_memalign(void *simp, size_t align, size_t alloc_size)
 
 	chunk_size = get_chunk_size(chunk);
 	p = (uint8_t *)get_chunk_payload(chunk);
-	q = (uint8_t *)ptr_align_up(p, align);
-	aligned_chunk = get_payload_chunk(q);
 
-	if (q == p) {
-		set_chunk_size(aligned_chunk, chunk_size);
+	if (is_ptr_aligned(p, align)) {
+		aligned_chunk = chunk;
 	} else {
+		q = (uint8_t*)ptr_align_up(p + simplc_chunk_min_size + simplc_chunk_overhead, align);
 		size = (uint32_t)(q - p) - simplc_chunk_overhead;
+
+		aligned_chunk = get_payload_chunk(q);
 		set_chunk_size(chunk, size);
 		set_chunk_free(chunk);
 		push_free_chunk(pool, chunk);
-		
+
 		aligned_chunk->phys_prev = chunk;
 		set_chunk_size(aligned_chunk, chunk_size - size - simplc_chunk_overhead);
 	}
