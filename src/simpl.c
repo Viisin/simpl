@@ -225,75 +225,6 @@ enum simpl_const {
 #define simplc_chunk_max_size (UINT32_MAX)
 };
 
-static inline uint32_t adjust_alloc_size(size_t alloc_size, size_t align) {
-	uint32_t adj_size;
-
-	if (alloc_size > simplc_chunk_max_size)
-		return 0;
-	adj_size = (uint32_t)alloc_size;
-	if (adj_size < simplc_chunk_min_size)
-		adj_size = simplc_chunk_min_size;
-	adj_size = (uint32_t)align_up(adj_size, align);
-	if (adj_size < alloc_size) /* overflow */
-		return 0;
-	return adj_size;
-}
-
-static inline void set_chunk_size(struct simpl_chunk *chunk, uint32_t size) {
-	assert_msg(!(size & chunk_flags_mask), "size(%d) invalid.", size);
-	chunk->size = size | get_chunk_flags(chunk);
-}
-
-static inline struct simpl_chunk *prev_phys_chunk(struct simpl_chunk *chunk) {
-	assert_msg(is_chunk_prev_free(chunk), "chunk must prev_freed.");
-	return chunk->phys_prev;
-}
-
-static inline struct simpl_chunk *next_phys_chunk(struct simpl_chunk *chunk) {
-	return (struct simpl_chunk *)((uint8_t *)chunk + simplc_chunk_overhead + get_chunk_size(chunk));
-}
-
-static inline void set_chunk_free(struct simpl_chunk *chunk) {
-	chunk->size |= chunk_flag_free_mask;
-	next_phys_chunk(chunk)->size |= chunk_flag_prev_free_mask;
-}
-
-static inline void set_chunk_used(struct simpl_chunk *chunk) {
-	chunk->size &= ~chunk_flag_free_mask;
-	next_phys_chunk(chunk)->size &= ~chunk_flag_prev_free_mask;
-}
-
-static inline void *get_chunk_payload(struct simpl_chunk *chunk) {
-	return chunk->payload;
-}
-
-static inline struct simpl_chunk *get_payload_chunk(void *payload) {
-	return container_of(payload, struct simpl_chunk, payload);
-}
-
-/** @brief    Get size of freelists mapping.
- *  @param fi The size and freelists index mapping.
- *  @return   The size of mapping */
-static uint32_t mapping_size(uint32_t fi)
-{
-	uint32_t size, size_shift, fli_local, fli = get_fl_index(fi);
-
-	if (fli < 8) {
-		fli_local = fli;
-		size_shift = 0;
-	} else if (fli < 16) {
-		fli_local = fli - 8;
-		size_shift = 10;
-	} else {
-		fli_local = fli - 16;
-		size_shift = 20;
-	}
-
-	size = fli_local? 32 << (fli_local - 1): 0;
-	size += get_sl_index(fi) * (size? size >> 3: 4);
-	return size <<= size_shift;
-}
-
 /** @brief      Size and freelists index mapping.
  *  @param pool Pool header.
  *  @param size Adjusted chunk size.
@@ -326,10 +257,79 @@ static uint32_t freelists_mapping(uint32_t size)
 	return get_freelist_index(fli, sli);
 }
 
+/** @brief    Get size of freelists mapping.
+ *  @param fi The size and freelists index mapping.
+ *  @return   The size of mapping */
+static uint32_t mapping_size(uint32_t fi)
+{
+	uint32_t size, size_shift, fli_local, fli = get_fl_index(fi);
+
+	if (fli < 8) {
+		fli_local = fli;
+		size_shift = 0;
+	} else if (fli < 16) {
+		fli_local = fli - 8;
+		size_shift = 10;
+	} else {
+		fli_local = fli - 16;
+		size_shift = 20;
+	}
+
+	size = fli_local? 32 << (fli_local - 1): 0;
+	size += get_sl_index(fi) * (size? size >> 3: 4);
+	return size <<= size_shift;
+}
+
 static inline uint32_t size_roundup(uint32_t size)
 {
 	uint32_t fi = freelists_mapping(size);
 	return size > mapping_size(fi)? mapping_size(fi + 1): size;
+}
+
+static inline uint32_t adjust_alloc_size(size_t alloc_size, size_t align) {
+	uint32_t adj_size;
+
+	if (alloc_size > simplc_chunk_max_size)
+		return 0;
+	adj_size = (uint32_t)alloc_size;
+	if (adj_size < simplc_chunk_min_size)
+		adj_size = simplc_chunk_min_size;
+	adj_size = (uint32_t)align_up(adj_size, align);
+	if (adj_size < alloc_size) /* overflow */
+		return 0;
+	return size_roundup(adj_size);
+}
+
+static inline void set_chunk_size(struct simpl_chunk *chunk, uint32_t size) {
+	assert_msg(!(size & chunk_flags_mask), "size(%d) invalid.", size);
+	chunk->size = size | get_chunk_flags(chunk);
+}
+
+static inline struct simpl_chunk *prev_phys_chunk(struct simpl_chunk *chunk) {
+	assert_msg(is_chunk_prev_free(chunk), "chunk must prev_freed.");
+	return chunk->phys_prev;
+}
+
+static inline struct simpl_chunk *next_phys_chunk(struct simpl_chunk *chunk) {
+	return (struct simpl_chunk *)((uint8_t *)chunk + simplc_chunk_overhead + get_chunk_size(chunk));
+}
+
+static inline void set_chunk_free(struct simpl_chunk *chunk) {
+	chunk->size |= chunk_flag_free_mask;
+	next_phys_chunk(chunk)->size |= chunk_flag_prev_free_mask;
+}
+
+static inline void set_chunk_used(struct simpl_chunk *chunk) {
+	chunk->size &= ~chunk_flag_free_mask;
+	next_phys_chunk(chunk)->size &= ~chunk_flag_prev_free_mask;
+}
+
+static inline void *get_chunk_payload(struct simpl_chunk *chunk) {
+	return chunk->payload;
+}
+
+static inline struct simpl_chunk *get_payload_chunk(void *payload) {
+	return container_of(payload, struct simpl_chunk, payload);
 }
 
 static inline void set_bitmap(struct simpl_pool *pool, uint32_t fi) {
@@ -556,7 +556,6 @@ void *simpl_malloc(void *simp, size_t alloc_size)
 	adj_size = adjust_alloc_size(alloc_size, simplc_bytes_per_ptr);
 	if (!adj_size || adj_size > pool->available)
 		return NULL;
-	adj_size = size_roundup(adj_size);
 	if (!(fi = search_freelists(pool, adj_size)))
 		return NULL;
 	chunk = pool->freelists[fi];
@@ -596,7 +595,6 @@ void *simpl_realloc(void *simp, void *simple, size_t realloc_size)
 	adj_size = adjust_alloc_size(realloc_size, simplc_bytes_per_ptr);
 	if (!adj_size)
 		return NULL;
-	adj_size = size_roundup(adj_size);
 	pool = (struct simpl_pool *)simp;
 	chunk = get_payload_chunk(simple);
 	chunk_size = get_chunk_size(chunk);
@@ -660,7 +658,6 @@ void *simpl_memalign(void *simp, size_t align, size_t alloc_size)
 	adj_size = adjust_alloc_size(alloc_size, align);
 	if (!adj_size || adj_size > pool->available)
 		return NULL;
-	adj_size = size_roundup(adj_size);
 	if (!(fi = search_freelists(pool, simplc_chunk_min_size + (uint32_t)align + adj_size)))
 		return NULL;
 	chunk = pool->freelists[fi];
