@@ -155,7 +155,7 @@ struct simpl_chunk {
 #define get_chunk_size(chunk)     ((chunk)->size & ~chunk_flags_mask)
 	union {
 		/** C++ not allow zero-sized array */
-		uint8_t *payload[1];
+		uint8_t payload[1];
 		/** "not allowed to access when chunk used */
 		struct {
 			struct simpl_chunk *free_prev;
@@ -264,7 +264,7 @@ static inline void set_chunk_used(struct simpl_chunk *chunk) {
 }
 
 static inline void *get_chunk_payload(struct simpl_chunk *chunk) {
-	return &chunk->payload;
+	return chunk->payload;
 }
 
 static inline struct simpl_chunk *get_payload_chunk(void *payload) {
