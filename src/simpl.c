@@ -468,7 +468,7 @@ static uint32_t search_freelists(struct simpl_pool *pool, uint32_t size)
 		"freelists[%d] must exist.", fi);
 	assert_msg(sli < simplc_bits_per_byte,
 		"sli(%d) must smaller than const(%d)", sli, simplc_bits_per_byte);
-	return fi;
+	return mapping_size(fi) <= pool->available? fi: 0;
 }
 
 /** @brief           Merge free neighbor chunk.
