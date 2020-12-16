@@ -280,12 +280,6 @@ static uint32_t mapping_size(uint32_t fi)
 	return size <<= size_shift;
 }
 
-static inline uint32_t size_roundup(uint32_t size)
-{
-	uint32_t fi = freelists_mapping(size);
-	return size > mapping_size(fi)? mapping_size(fi + 1): size;
-}
-
 static inline uint32_t adjust_alloc_size(size_t alloc_size, size_t align) {
 	uint32_t adj_size;
 
@@ -297,7 +291,7 @@ static inline uint32_t adjust_alloc_size(size_t alloc_size, size_t align) {
 	adj_size = (uint32_t)align_up(adj_size, align);
 	if (adj_size < alloc_size) /* overflow */
 		return 0;
-	return size_roundup(adj_size);
+	return adj_size;
 }
 
 static inline void set_chunk_size(struct simpl_chunk *chunk, uint32_t size) {
@@ -436,6 +430,14 @@ void *simpl_init(void *buffer, size_t buffer_size)
 	return pool;
 }
 
+static inline uint32_t size_roundup(uint32_t size)
+{
+	uint32_t fi = freelists_mapping(size);
+	if (fi)
+		return size > mapping_size(fi)? mapping_size(fi + 1): size;
+	return 0;
+}
+
 /** @brief          Search available chunk from freelists.
  *  @param[in] pool Pool header.
  *  @param[in] size Adjusted chunk size which be required.
@@ -444,10 +446,14 @@ void *simpl_init(void *buffer, size_t buffer_size)
  *  \p size can't over UINT32_MAX. */
 static uint32_t search_freelists(struct simpl_pool *pool, uint32_t size)
 {
-	uint32_t fi, fli, sli;
+	uint32_t round, fi, fli, sli;
 	int fs;
 
-	fi = freelists_mapping(size);
+	round = size? size_roundup(size): 0;
+	if (!round || round > pool->available)
+		return 0;
+	if (!(fi = freelists_mapping(round)))
+		return 0;
 	fli = get_fl_index(fi);
 	sli = get_sl_index(fi);
 
@@ -468,7 +474,7 @@ static uint32_t search_freelists(struct simpl_pool *pool, uint32_t size)
 		"freelists[%d] must exist.", fi);
 	assert_msg(sli < simplc_bits_per_byte,
 		"sli(%d) must smaller than const(%d)", sli, simplc_bits_per_byte);
-	return mapping_size(fi) <= pool->available? fi: 0;
+	return fi;
 }
 
 /** @brief           Merge free neighbor chunk.
@@ -554,8 +560,6 @@ void *simpl_malloc(void *simp, size_t alloc_size)
 	pool = (struct simpl_pool *)simp;
 
 	adj_size = adjust_alloc_size(alloc_size, simplc_bytes_per_ptr);
-	if (!adj_size || adj_size > pool->available)
-		return NULL;
 	if (!(fi = search_freelists(pool, adj_size)))
 		return NULL;
 	chunk = pool->freelists[fi];
@@ -645,7 +649,7 @@ void *simpl_memalign(void *simp, size_t align, size_t alloc_size)
 	struct simpl_pool *pool;
 	struct simpl_chunk *chunk, *aligned_chunk;
 	size_t mask;
-	uint32_t adj_size, fi, chunk_size, size;
+	uint32_t adj_size, chunk_size, fi, size;
 	uint8_t *p, *q;
 
 	if (align < simplc_bytes_per_ptr)
@@ -656,9 +660,7 @@ void *simpl_memalign(void *simp, size_t align, size_t alloc_size)
 	pool = (struct simpl_pool *)simp;
 
 	adj_size = adjust_alloc_size(alloc_size, align);
-	if (!adj_size || adj_size > pool->available)
-		return NULL;
-	if (!(fi = search_freelists(pool, simplc_chunk_min_size + (uint32_t)align + adj_size)))
+	if (!(fi = search_freelists(pool, alloc_size + (uint32_t)align + simplc_chunk_min_size)))
 		return NULL;
 	chunk = pool->freelists[fi];
 	pop_free_chunk(pool, chunk);
