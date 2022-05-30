@@ -275,6 +275,8 @@ static uint32_t mapping_size(uint32_t fi)
 		size_shift = 20;
 	}
 
+	if (fli_local == 0 && get_sl_index(fi) == 0)
+		return 0;
 	size = fli_local? 32 << (fli_local - 1): 0;
 	size += get_sl_index(fi) * (size? size >> 3: 4);
 	return size <<= size_shift;
@@ -433,9 +435,13 @@ void *simpl_init(void *buffer, size_t buffer_size)
 static inline uint32_t size_roundup(uint32_t size)
 {
 	uint32_t fi = freelists_mapping(size);
-	if (fi)
-		return size > mapping_size(fi)? mapping_size(fi + 1): size;
-	return 0;
+	if (!fi)
+		return 0;
+
+	if (size <= mapping_size(fi))
+		return size;
+	size = mapping_size(fi + 1);
+	return size? size: mapping_size(fi + 2); /** Gap of local fli and sli are zero */
 }
 
 /** @brief          Search available chunk from freelists.
