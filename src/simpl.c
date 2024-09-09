@@ -660,7 +660,7 @@ void *simpl_memalign(void *simp, size_t align, size_t alloc_size)
 	pool = (struct simpl_pool *)simp;
 
 	adj_size = adjust_alloc_size(alloc_size, align);
-	if (!(fi = search_freelists(pool, alloc_size + (uint32_t)align + simplc_chunk_min_size)))
+	if (!(fi = search_freelists(pool, adj_size + (uint32_t)align + simplc_chunk_min_size)))
 		return NULL;
 	chunk = pool->freelists[fi];
 	pop_free_chunk(pool, chunk);
